@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>AKUMU SHOOTER | AKUMU CHANNEL</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#070b1d; color:#e8ecf8; font-family:"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif; display:flex; justify-content:center; min-height:100vh; }
+  #app { width:100%; max-width:640px; padding:14px 12px 26px; text-align:center; }
+  .brand { color:#d8b23c; letter-spacing:.35em; font-size:11px; }
+  h1 { font-size:20px; margin:4px 0 2px; }
+  .sub { color:#8fa0d0; font-size:12px; margin-bottom:10px; }
+  #hud { display:flex; justify-content:space-between; font-size:13px; color:#c8d2f0; padding:4px 2px 8px; }
+  #wrap { position:relative; }
+  canvas { width:100%; background:#05081a; border:1px solid #26336b; border-radius:10px; touch-action:none; display:block; }
+  #overlay { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; background:rgba(5,8,26,.72); border-radius:10px; }
+  #overlay h2 { color:#ffd9a0; font-size:22px; }
+  #overlay p { font-size:13px; color:#c8d2f0; line-height:1.7; padding:0 20px; }
+  #startBtn { background:#d8b23c; color:#141414; border:none; border-radius:12px; padding:12px 30px; font-size:16px; font-weight:bold; cursor:pointer; }
+  .help { font-size:12px; color:#8fa0d0; margin-top:10px; line-height:1.7; }
+  footer { color:#5f6f9f; font-size:11px; margin-top:14px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="brand">AKUMU CHANNEL</div>
+  <h1>AKUMU SHOOTER</h1>
+  <div class="sub">横スクロールシューティング</div>
+  <div id="hud"><span>SCORE <b id="score">0</b></span><span>POWER <b id="power">Lv1</b></span><span>LIFE <b id="life">♥♥♥</b></span></div>
+  <div id="wrap">
+    <canvas id="cv" width="600" height="360"></canvas>
+    <div id="overlay">
+      <h2 id="ovTitle">AKUMU SHOOTER</h2>
+      <p id="ovText">自機を動かして敵を撃とう。赤いカプセルを取ると武器が強化される。<br>スマホは指でドラッグ、ショットは自動。PCは矢印キー／WASD＋スペース長押しでもOK。</p>
+      <button id="startBtn">スタート</button>
+    </div>
+  </div>
+  <div class="help">敵に当たると1ミス（残り3機）。時間とともに敵が増えて速くなるよ。</div>
+  <footer>AKUMU CHANNEL ゲーム ― 現実が退屈なら、最高の悪夢へ。<br><a href="index.html" style="color:#8fa0d0">← ゲーム一覧へ戻る</a></footer>
+</div>
+<script>
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const W = cv.width, H = cv.height;
+let running = false, t = 0, score = 0, lives = 3, power = 1, lastShot = 0, spawnTimer = 0, invuln = 0;
+const player = { x: 70, y: H/2, r: 12 };
+let bullets = [], enemies = [], capsules = [], stars = [], keys = {}, pointer = null;
+function bulletObj(x, y, vx, vy){ return {x, y, vx, vy, r: 5}; }
+for (let i=0;i<70;i++) stars.push({x:Math.random()*W, y:Math.random()*H, s:Math.random()*1.8+0.4, v:Math.random()*1.2+0.3});
+
+function reset(){ t=0; score=0; lives=3; power=1; bullets=[]; enemies=[]; capsules=[]; player.x=70; player.y=H/2; invuln=0; spawnTimer=0; updateHud(); }
+function updateHud(){
+  document.getElementById('score').textContent = score;
+  document.getElementById('power').textContent = 'Lv' + power;
+  document.getElementById('life').textContent = '♥'.repeat(Math.max(0,lives));
+}
+function spawnEnemy(){
+  const kind = Math.random();
+  const y = 30 + Math.random()*(H-60);
+  if (kind < 0.62) enemies.push({x:W+20, y, baseY:y, r:11, hp:1, type:'sine', ph:Math.random()*6.28, sp:2+Math.random()*1.2});
+  else if (kind < 0.87) enemies.push({x:W+20, y, baseY:y, r:13, hp:2, type:'straight', ph:0, sp:2.6});
+  else enemies.push({x:W+20, y, baseY:y, r:16, hp:4, type:'tank', ph:0, sp:1.4});
+}
+function shoot(now){
+  if (now - lastShot < 130) return;
+  lastShot = now;
+  const bx = player.x + 16, by = player.y;
+  bullets.push(bulletObj(bx, by, 9, 0));
+  if (power >= 2) bullets.push(bulletObj(bx, by-8, 9, 0), bulletObj(bx, by+8, 9, 0));
+  if (power >= 3) bullets.push(bulletObj(bx, by, 8.4, -1.7), bulletObj(bx, by, 8.4, 1.7));
+}
+function hit(a,b,pad){ const dx=a.x-b.x, dy=a.y-b.y, rr=a.r+b.r+(pad||0); return dx*dx+dy*dy < rr*rr; }
+
+function step(now){
+  if (!running) return;
+  t++;
+  // stars
+  for (const s of stars){ s.x -= s.v; if (s.x < 0){ s.x = W; s.y = Math.random()*H; } }
+  // player move
+  const spd = 4.2;
+  if (keys['ArrowUp']||keys['KeyW']) player.y -= spd;
+  if (keys['ArrowDown']||keys['KeyS']) player.y += spd;
+  if (keys['ArrowLeft']||keys['KeyA']) player.x -= spd;
+  if (keys['ArrowRight']||keys['KeyD']) player.x += spd;
+  if (pointer){ player.x += (pointer.x - player.x)*0.35; player.y += (pointer.y - player.y)*0.35; shoot(now); }
+  if (keys['Space']) shoot(now);
+  player.x = Math.max(16, Math.min(W*0.62, player.x));
+  player.y = Math.max(16, Math.min(H-16, player.y));
+  if (invuln > 0) invuln--;
+  // spawn
+  spawnTimer--;
+  const interval = Math.max(26, 62 - Math.floor(t/300)*5);
+  if (spawnTimer <= 0){ spawnEnemy(); spawnTimer = interval * (0.7 + Math.random()*0.6); }
+  // bullets
+  bullets = bullets.filter(b => b.x < W+20 && b.y > -20 && b.y < H+20);
+  for (const b of bullets){ b.x += b.vx; b.y += b.vy; }
+  // enemies
+  for (const e of enemies){
+    e.x -= e.sp + Math.min(1.6, t/2400);
+    if (e.type === 'sine'){ e.ph += 0.06; e.y = e.baseY + Math.sin(e.ph)*34; }
+  }
+  enemies = enemies.filter(e => e.x > -30);
+  // capsules
+  for (const c of capsules) c.x -= 1.6;
+  capsules = capsules.filter(c => c.x > -20);
+  // collisions bullet-enemy
+  for (const b of bullets){
+    for (const e of enemies){
+      if (e.hp > 0 && hit(b, e, 2)){
+        e.hp--; b.x = W+999;
+        if (e.hp <= 0){
+          score += e.type === 'tank' ? 300 : 100;
+          if (Math.random() < 0.22 || e.type === 'tank') capsules.push({x:e.x, y:e.y, r:9});
+        }
+        break;
+      }
+    }
+  }
+  enemies = enemies.filter(e => e.hp > 0);
+  // player-capsule
+  for (const c of capsules){
+    if (hit(player, c, 4)){ c.x = -999; if (power < 3) power++; score += 50; }
+  }
+  capsules = capsules.filter(c => c.x > -50);
+  // player-enemy
+  if (invuln <= 0){
+    for (const e of enemies){
+      if (hit(player, e, -3)){
+        lives--; invuln = 110; e.hp = 0; updateHud();
+        if (lives <= 0){ gameOver(); return; }
+        break;
+      }
+    }
+    enemies = enemies.filter(e => e.hp > 0);
+  }
+  updateHud();
+  draw();
+  requestAnimationFrame(step);
+}
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  // stars
+  ctx.fillStyle = '#aebfe8';
+  for (const s of stars){ ctx.globalAlpha = 0.35 + s.s*0.3; ctx.fillRect(s.x, s.y, s.s, s.s); }
+  ctx.globalAlpha = 1;
+  // capsules
+  for (const c of capsules){
+    ctx.fillStyle = '#ff4d4d'; ctx.beginPath(); ctx.arc(c.x, c.y, c.r, 0, 6.29); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('P', c.x, c.y+4);
+  }
+  // enemies
+  for (const e of enemies){
+    ctx.fillStyle = e.type === 'tank' ? '#b0578f' : (e.type === 'straight' ? '#e07840' : '#d8b23c');
+    ctx.beginPath();
+    ctx.moveTo(e.x - e.r, e.y);
+    ctx.lineTo(e.x + e.r, e.y - e.r*0.75);
+    ctx.lineTo(e.x + e.r*0.4, e.y);
+    ctx.lineTo(e.x + e.r, e.y + e.r*0.75);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#141414'; ctx.beginPath(); ctx.arc(e.x - 2, e.y, 3, 0, 6.29); ctx.fill();
+  }
+  // bullets
+  ctx.fillStyle = '#8fd3ff';
+  for (const b of bullets){ ctx.fillRect(b.x, b.y-2, 12, 4); }
+  // player
+  if (!(invuln > 0 && Math.floor(invuln/6) % 2 === 0)){
+    ctx.fillStyle = '#3ec97f';
+    ctx.beginPath();
+    ctx.moveTo(player.x + 18, player.y);
+    ctx.lineTo(player.x - 12, player.y - 10);
+    ctx.lineTo(player.x - 6, player.y);
+    ctx.lineTo(player.x - 12, player.y + 10);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#dff5e6'; ctx.beginPath(); ctx.arc(player.x + 4, player.y, 4, 0, 6.29); ctx.fill();
+    ctx.fillStyle = '#ffa033'; ctx.fillRect(player.x - 16, player.y - 2, 5, 4);
+  }
+}
+function gameOver(){
+  running = false;
+  document.getElementById('ovTitle').textContent = 'GAME OVER';
+  document.getElementById('ovText').innerHTML = 'スコアは <b>' + score + '</b> でした。おつかれさま！';
+  document.getElementById('startBtn').textContent = 'もう一度';
+  document.getElementById('overlay').style.display = 'flex';
+}
+document.getElementById('startBtn').onclick = () => {
+  document.getElementById('overlay').style.display = 'none';
+  reset(); running = true; requestAnimationFrame(step);
+};
+addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'Space') e.preventDefault(); });
+addEventListener('keyup', e => { keys[e.code] = false; });
+function toLocal(ev){
+  const r = cv.getBoundingClientRect();
+  const cx = (ev.touches ? ev.touches[0].clientX : ev.clientX);
+  const cy = (ev.touches ? ev.touches[0].clientY : ev.clientY);
+  return { x: (cx - r.left) * (W / r.width), y: (cy - r.top) * (H / r.height) };
+}
+cv.addEventListener('touchstart', e => { pointer = toLocal(e); e.preventDefault(); }, {passive:false});
+cv.addEventListener('touchmove', e => { pointer = toLocal(e); e.preventDefault(); }, {passive:false});
+cv.addEventListener('touchend', () => pointer = null);
+cv.addEventListener('mousedown', e => pointer = toLocal(e));
+cv.addEventListener('mousemove', e => { if (pointer) pointer = toLocal(e); });
+addEventListener('mouseup', () => pointer = null);
+draw();
+</script>
+</body>
+</html>

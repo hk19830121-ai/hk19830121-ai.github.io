@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>私を表す漢字｜名前一文字診断</title>
+<style>
+  :root{ --navy:#0d1526; --gold:#c9a227; --washi:#f7f2e4; --ink:#1a1a1a; }
+  *{ box-sizing:border-box; }
+  body{ margin:0; font-family:"Hiragino Mincho ProN","Yu Mincho",serif; background:var(--navy); color:#eee; min-height:100vh; }
+  .wrap{ max-width:640px; margin:0 auto; padding:32px 20px 56px; }
+  h1{ font-size:22px; letter-spacing:.2em; text-align:center; margin:8px 0 4px; color:#fff; }
+  .sub{ text-align:center; color:#b9c2d8; font-size:13px; letter-spacing:.1em; margin-bottom:24px; }
+  .card{ background:var(--washi); color:var(--ink); border-radius:6px; padding:28px 22px; box-shadow:0 10px 30px rgba(0,0,0,.45); }
+  label{ display:block; font-size:14px; margin-bottom:8px; letter-spacing:.08em; }
+  input{ width:100%; font-size:18px; padding:12px; border:1px solid #b8ab8a; border-radius:4px; background:#fffdf6; font-family:inherit; }
+  .chips{ margin:14px 0 4px; display:flex; flex-wrap:wrap; gap:8px; }
+  .chip{ border:1px solid var(--gold); color:#6b5510; background:#fff8dd; border-radius:999px; padding:6px 14px; font-size:14px; cursor:pointer; font-family:inherit; }
+  .chip:hover{ background:#ffedb5; }
+  .chips-label{ font-size:12px; color:#77683f; width:100%; margin-bottom:2px; }
+  button.go{ width:100%; margin-top:18px; padding:14px; font-size:17px; letter-spacing:.2em; background:var(--navy); color:#fff; border:none; border-radius:4px; cursor:pointer; font-family:inherit; }
+  button.go:hover{ background:#1a2947; }
+  .privacy{ font-size:12px; color:#8a7c55; text-align:center; margin-top:12px; }
+  #result{ display:none; margin-top:26px; text-align:center; }
+  #result .for{ font-size:14px; letter-spacing:.15em; color:#5c4d21; }
+  #kanji{ font-size:150px; line-height:1.15; font-weight:700; color:var(--ink); margin:6px 0 2px; }
+  #theme{ font-size:17px; letter-spacing:.3em; color:#8a6d1c; margin-bottom:10px; }
+  #msg{ font-size:15px; line-height:1.9; color:#333; max-width:460px; margin:0 auto; text-align:left; }
+  .again{ margin-top:16px; font-size:12px; color:#8a7c55; }
+  footer{ text-align:center; color:#7e8aa5; font-size:12px; margin-top:28px; letter-spacing:.15em; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>私を表す漢字</h1>
+  <div class="sub">名前一文字診断</div>
+
+  <div class="card">
+    <label for="name">名前（ニックネームでもOK）を入れてください</label>
+    <input id="name" type="text" maxlength="12" placeholder="例：はると" autocomplete="off">
+    <div class="chips">
+      <span class="chips-label">よくある名前で試す：</span>
+      <button class="chip" data-name="はると">はると</button>
+      <button class="chip" data-name="そら">そら</button>
+      <button class="chip" data-name="ゆい">ゆい</button>
+      <button class="chip" data-name="めい">めい</button>
+      <button class="chip" data-name="れん">れん</button>
+      <button class="chip" data-name="あおい">あおい</button>
+      <button class="chip" data-name="ひなた">ひなた</button>
+      <button class="chip" data-name="さくら">さくら</button>
+      <button class="chip" data-name="ゆうき">ゆうき</button>
+      <button class="chip" data-name="つむぎ">つむぎ</button>
+    </div>
+    <button class="go" id="go">診 断 す る</button>
+    <div class="privacy">入力した名前は送信されません。このページの中だけで診断します。</div>
+
+    <div id="result">
+      <div class="for" id="forName"></div>
+      <div id="kanji"></div>
+      <div id="theme"></div>
+      <p id="msg"></p>
+      <div class="again">同じ名前は、いつ診断しても同じ一文字になります。</div>
+    </div>
+  </div>
+
+  <footer>AKUMU CHANNEL ― 現実が退屈なら、最高の悪夢へ。<br><a href="index.html" style="color:#7e8aa5">← ゲーム一覧へ戻る</a></footer>
+</div>
+
+<script>
+var POOL = [
+  {k:"集", t:"集う人", m:"人が集まる場所に、あなたの力がいちばん出ます。一人で黙々と進めるより、誰かと場を作ったときに物事が動き出すタイプです。"},
+  {k:"遊", t:"本気の遊び", m:"遊びを本気でやる人です。ふざけているように見えて芯は真剣で、遊びから本物が生まれることが多いはずです。"},
+  {k:"夢", t:"夢の住人", m:"頭の中にもう一つの世界を持っている人です。現実だけでは窮屈で、想像の中の景色があなたを前に進ませます。"},
+  {k:"夜", t:"夜の人", m:"静かな時間に冴える人です。皆が休む頃に考えが深まり、大事な決断は夜に固まることが多いでしょう。"},
+  {k:"始", t:"始める人", m:"最初の一歩を作る人です。完成させるより、ゼロをイチにする場面で輝きます。始めた後は人に任せるのも上手なはずです。"},
+  {k:"光", t:"灯す人", m:"周りを明るくする人です。派手に照らすのではなく、そばにいる人の足元を静かに照らす灯りタイプです。"},
+  {k:"風", t:"風の人", m:"一つの場所に留まらない人です。空気を読んで流れに乗るのが上手く、変化そのものを味方にします。"},
+  {k:"星", t:"星読みの人", m:"遠くを見て動く人です。目先の結果より、先の景色を信じて今日の一歩を選べるタイプです。"},
+  {k:"月", t:"月の人", m:"表に出すぎず、でも確かに照らす人です。支える側に回ったときに、その存在感がいちばん増します。"},
+  {k:"笑", t:"笑いの人", m:"場をほぐす人です。真面目な場面ほど、あなたのひと言で空気が軽くなり、話が進み始めます。"},
+  {k:"挑", t:"挑む人", m:"安全な道より、試したくなる道を選ぶ人です。勝てるかどうかより、挑んだかどうかを大事にします。"},
+  {k:"結", t:"結ぶ人", m:"人と人を結ぶ人です。自分が主役になるより、縁をつないで大きな形にする役目が似合います。"},
+  {k:"守", t:"守る人", m:"大事なものを静かに守り続ける人です。派手さはないけれど、あなたがいるから崩れないものがあります。"},
+  {k:"進", t:"進む人", m:"止まると調子が落ちる人です。速さはゆっくりでも構いません。前を向いている限り大丈夫なタイプです。"},
+  {k:"静", t:"静けさの人", m:"静かな場面で本領を発揮する人です。言葉は少なくても、観察と判断の精度が高いはずです。"},
+  {k:"熱", t:"内に熱い人", m:"表面は穏やかでも、内側に熱を持つ人です。一度火が付くと、周りが驚くほど長く燃え続けます。"},
+  {k:"誠", t:"誠の人", m:"約束を軽くしない人です。その分、言葉に重みがあり、時間をかけて信頼が積み上がっていきます。"},
+  {k:"希", t:"希望の人", m:"悪い方より良い方を見て動く人です。根拠のない明るさではなく、希望を材料に現実を組むタイプです。"},
+  {k:"翔", t:"翔ける人", m:"地面より空が似合う人です。準備が整うと一気に跳びます。その跳躍のために助走を長く取る人でもあります。"},
+  {k:"奏", t:"奏でる人", m:"場の調和を作る人です。自分だけ目立つのではなく、全体がいい音になるように調整できるタイプです。"},
+  {k:"織", t:"織る人", m:"小さなものを積み重ねて形にする人です。一本ずつは細くても、織り上がると丈夫な布になります。"},
+  {k:"灯", t:"灯りの人", m:"小さな灯りを絶やさない人です。大きな成功より、続けること自体に意味を見いだせるタイプです。"},
+  {k:"扉", t:"扉の人", m:"新しい入口を作る人です。あなたが開けた扉から、他の人が入ってくる。先に試す役目が回ってきやすいはずです。"},
+  {k:"縁", t:"縁の人", m:"偶然を縁に変える人です。出会いを大事にすると、それが後で大きな支えになって返ってきます。"}
+];
+
+function diagnose(name){
+  var h = 0;
+  for (var i = 0; i < name.length; i++){
+    h = (h * 31 + name.charCodeAt(i) * (i + 7)) % 100000;
+  }
+  h = (h + name.length * 137) % POOL.length;
+  return POOL[h];
+}
+
+function run(){
+  var input = document.getElementById("name");
+  var name = input.value.trim();
+  if (!name){ input.focus(); return; }
+  var r = diagnose(name);
+  document.getElementById("forName").textContent = "― " + name + " を表す漢字 ―";
+  document.getElementById("kanji").textContent = r.k;
+  document.getElementById("theme").textContent = r.t;
+  document.getElementById("msg").textContent = r.m;
+  var box = document.getElementById("result");
+  box.style.display = "block";
+  box.scrollIntoView({behavior:"smooth", block:"center"});
+}
+
+document.getElementById("go").addEventListener("click", run);
+document.getElementById("name").addEventListener("keydown", function(e){ if (e.key === "Enter") run(); });
+var chips = document.querySelectorAll(".chip");
+for (var c = 0; c < chips.length; c++){
+  chips[c].addEventListener("click", function(){
+    document.getElementById("name").value = this.getAttribute("data-name");
+    run();
+  });
+}
+</script>
+</body>
+</html>
