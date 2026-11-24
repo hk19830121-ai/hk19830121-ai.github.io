@@ -36,17 +36,61 @@
       <button id="startBtn">スタート</button>
     </div>
   </div>
-  <div class="help">敵に当たると1ミス（残り3機）。時間とともに敵が増えて速くなるよ。</div>
+  <div class="help">敵に当たると1ミス（残り3機）。時間とともに敵が増えて速くなるよ。音が出るよ（Tone.js）。</div>
   <footer>AKUMU CHANNEL ゲーム ― 現実が退屈なら、最高の悪夢へ。<br><a href="index.html" style="color:#8fa0d0">← ゲーム一覧へ戻る</a></footer>
 </div>
+<script src="../assets/vendor/pixi.min.js"></script>
+<script src="../assets/vendor/Tone.js"></script>
 <script>
-const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
-const W = cv.width, H = cv.height;
+const cv = document.getElementById('cv');
+const W = 600, H = 360;
 let running = false, t = 0, score = 0, lives = 3, power = 1, lastShot = 0, spawnTimer = 0, invuln = 0;
 const player = { x: 70, y: H/2, r: 12 };
 let bullets = [], enemies = [], capsules = [], stars = [], keys = {}, pointer = null;
 function bulletObj(x, y, vx, vy){ return {x, y, vx, vy, r: 5}; }
 for (let i=0;i<70;i++) stars.push({x:Math.random()*W, y:Math.random()*H, s:Math.random()*1.8+0.4, v:Math.random()*1.2+0.3});
+
+// ---------- PixiJS rendering ----------
+let gfx = null, pTexts = [];
+(async () => {
+  const app = new PIXI.Application();
+  await app.init({ canvas: cv, width: W, height: H, background: 0x05081a, resolution: 1, antialias: true });
+  gfx = new PIXI.Graphics();
+  app.stage.addChild(gfx);
+  draw();
+})();
+function getPText(i){
+  if (!pTexts[i]){
+    const tx = new PIXI.Text({ text: 'P', style: { fontSize: 11, fontWeight: 'bold', fill: 0xffffff, fontFamily: 'sans-serif' } });
+    tx.anchor.set(0.5);
+    // texts must live on the same stage as gfx; find it via gfx.parent on first use
+    pTexts[i] = tx;
+    if (gfx && gfx.parent) gfx.parent.addChild(tx);
+  }
+  return pTexts[i];
+}
+
+// ---------- Tone.js sound ----------
+let AC = null;
+function initAudio(){
+  if (AC || typeof Tone === 'undefined') return;
+  try {
+    const shoot = new Tone.Synth({ oscillator: { type: 'square' }, envelope: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.02 } }).toDestination();
+    shoot.volume.value = -22;
+    const boom = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.18, sustain: 0 } }).toDestination();
+    boom.volume.value = -14;
+    const powerS = new Tone.Synth({ oscillator: { type: 'triangle' }, envelope: { attack: 0.001, decay: 0.09, sustain: 0, release: 0.03 } }).toDestination();
+    powerS.volume.value = -12;
+    const hurt = new Tone.Synth({ oscillator: { type: 'sawtooth' }, envelope: { attack: 0.001, decay: 0.25, sustain: 0, release: 0.05 } }).toDestination();
+    hurt.volume.value = -12;
+    AC = { shoot, boom, powerS, hurt };
+  } catch (e) { AC = null; }
+}
+function seShoot(){ if (AC) { try { AC.shoot.triggerAttackRelease('A6', '32n'); } catch(e){} } }
+function seBoom(){ if (AC) { try { AC.boom.triggerAttackRelease('16n'); } catch(e){} } }
+function sePower(){ if (AC) { try { AC.powerS.triggerAttackRelease('E6', '16n'); setTimeout(() => { try { AC.powerS.triggerAttackRelease('B6', '16n'); } catch(e){} }, 70); } catch(e){} } }
+function seHurt(){ if (AC) { try { AC.hurt.triggerAttackRelease('C3', '8n'); } catch(e){} } }
+function seOver(){ if (AC) { try { const n = ['E4','C4','A3']; n.forEach((nn, i) => setTimeout(() => { try { AC.powerS.triggerAttackRelease(nn, '8n'); } catch(e){} }, i * 160)); } catch(e){} } }
 
 function reset(){ t=0; score=0; lives=3; power=1; bullets=[]; enemies=[]; capsules=[]; player.x=70; player.y=H/2; invuln=0; spawnTimer=0; updateHud(); }
 function updateHud(){
@@ -68,15 +112,14 @@ function shoot(now){
   bullets.push(bulletObj(bx, by, 9, 0));
   if (power >= 2) bullets.push(bulletObj(bx, by-8, 9, 0), bulletObj(bx, by+8, 9, 0));
   if (power >= 3) bullets.push(bulletObj(bx, by, 8.4, -1.7), bulletObj(bx, by, 8.4, 1.7));
+  seShoot();
 }
 function hit(a,b,pad){ const dx=a.x-b.x, dy=a.y-b.y, rr=a.r+b.r+(pad||0); return dx*dx+dy*dy < rr*rr; }
 
 function step(now){
   if (!running) return;
   t++;
-  // stars
   for (const s of stars){ s.x -= s.v; if (s.x < 0){ s.x = W; s.y = Math.random()*H; } }
-  // player move
   const spd = 4.2;
   if (keys['ArrowUp']||keys['KeyW']) player.y -= spd;
   if (keys['ArrowDown']||keys['KeyS']) player.y += spd;
@@ -87,29 +130,25 @@ function step(now){
   player.x = Math.max(16, Math.min(W*0.62, player.x));
   player.y = Math.max(16, Math.min(H-16, player.y));
   if (invuln > 0) invuln--;
-  // spawn
   spawnTimer--;
   const interval = Math.max(26, 62 - Math.floor(t/300)*5);
   if (spawnTimer <= 0){ spawnEnemy(); spawnTimer = interval * (0.7 + Math.random()*0.6); }
-  // bullets
   bullets = bullets.filter(b => b.x < W+20 && b.y > -20 && b.y < H+20);
   for (const b of bullets){ b.x += b.vx; b.y += b.vy; }
-  // enemies
   for (const e of enemies){
     e.x -= e.sp + Math.min(1.6, t/2400);
     if (e.type === 'sine'){ e.ph += 0.06; e.y = e.baseY + Math.sin(e.ph)*34; }
   }
   enemies = enemies.filter(e => e.x > -30);
-  // capsules
   for (const c of capsules) c.x -= 1.6;
   capsules = capsules.filter(c => c.x > -20);
-  // collisions bullet-enemy
   for (const b of bullets){
     for (const e of enemies){
       if (e.hp > 0 && hit(b, e, 2)){
         e.hp--; b.x = W+999;
         if (e.hp <= 0){
           score += e.type === 'tank' ? 300 : 100;
+          seBoom();
           if (Math.random() < 0.22 || e.type === 'tank') capsules.push({x:e.x, y:e.y, r:9});
         }
         break;
@@ -117,16 +156,14 @@ function step(now){
     }
   }
   enemies = enemies.filter(e => e.hp > 0);
-  // player-capsule
   for (const c of capsules){
-    if (hit(player, c, 4)){ c.x = -999; if (power < 3) power++; score += 50; }
+    if (hit(player, c, 4)){ c.x = -999; if (power < 3) power++; score += 50; sePower(); }
   }
   capsules = capsules.filter(c => c.x > -50);
-  // player-enemy
   if (invuln <= 0){
     for (const e of enemies){
       if (hit(player, e, -3)){
-        lives--; invuln = 110; e.hp = 0; updateHud();
+        lives--; invuln = 110; e.hp = 0; updateHud(); seHurt();
         if (lives <= 0){ gameOver(); return; }
         break;
       }
@@ -138,51 +175,38 @@ function step(now){
   requestAnimationFrame(step);
 }
 function draw(){
-  ctx.clearRect(0,0,W,H);
-  // stars
-  ctx.fillStyle = '#aebfe8';
-  for (const s of stars){ ctx.globalAlpha = 0.35 + s.s*0.3; ctx.fillRect(s.x, s.y, s.s, s.s); }
-  ctx.globalAlpha = 1;
-  // capsules
-  for (const c of capsules){
-    ctx.fillStyle = '#ff4d4d'; ctx.beginPath(); ctx.arc(c.x, c.y, c.r, 0, 6.29); ctx.fill();
-    ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('P', c.x, c.y+4);
-  }
-  // enemies
+  if (!gfx) return;
+  gfx.clear();
+  for (const s of stars){ gfx.rect(s.x, s.y, s.s, s.s).fill({ color: 0xaebfe8, alpha: 0.35 + s.s*0.3 }); }
+  capsules.forEach((c, i) => {
+    gfx.circle(c.x, c.y, c.r).fill(0xff4d4d);
+    const tx = getPText(i);
+    tx.x = c.x; tx.y = c.y; tx.visible = true;
+  });
+  for (let i = capsules.length; i < pTexts.length; i++) pTexts[i].visible = false;
   for (const e of enemies){
-    ctx.fillStyle = e.type === 'tank' ? '#b0578f' : (e.type === 'straight' ? '#e07840' : '#d8b23c');
-    ctx.beginPath();
-    ctx.moveTo(e.x - e.r, e.y);
-    ctx.lineTo(e.x + e.r, e.y - e.r*0.75);
-    ctx.lineTo(e.x + e.r*0.4, e.y);
-    ctx.lineTo(e.x + e.r, e.y + e.r*0.75);
-    ctx.closePath(); ctx.fill();
-    ctx.fillStyle = '#141414'; ctx.beginPath(); ctx.arc(e.x - 2, e.y, 3, 0, 6.29); ctx.fill();
+    const col = e.type === 'tank' ? 0xb0578f : (e.type === 'straight' ? 0xe07840 : 0xd8b23c);
+    gfx.poly([e.x - e.r, e.y, e.x + e.r, e.y - e.r*0.75, e.x + e.r*0.4, e.y, e.x + e.r, e.y + e.r*0.75]).fill(col);
+    gfx.circle(e.x - 2, e.y, 3).fill(0x141414);
   }
-  // bullets
-  ctx.fillStyle = '#8fd3ff';
-  for (const b of bullets){ ctx.fillRect(b.x, b.y-2, 12, 4); }
-  // player
+  for (const b of bullets){ gfx.rect(b.x, b.y-2, 12, 4).fill(0x8fd3ff); }
   if (!(invuln > 0 && Math.floor(invuln/6) % 2 === 0)){
-    ctx.fillStyle = '#3ec97f';
-    ctx.beginPath();
-    ctx.moveTo(player.x + 18, player.y);
-    ctx.lineTo(player.x - 12, player.y - 10);
-    ctx.lineTo(player.x - 6, player.y);
-    ctx.lineTo(player.x - 12, player.y + 10);
-    ctx.closePath(); ctx.fill();
-    ctx.fillStyle = '#dff5e6'; ctx.beginPath(); ctx.arc(player.x + 4, player.y, 4, 0, 6.29); ctx.fill();
-    ctx.fillStyle = '#ffa033'; ctx.fillRect(player.x - 16, player.y - 2, 5, 4);
+    gfx.poly([player.x + 18, player.y, player.x - 12, player.y - 10, player.x - 6, player.y, player.x - 12, player.y + 10]).fill(0x3ec97f);
+    gfx.circle(player.x + 4, player.y, 4).fill(0xdff5e6);
+    gfx.rect(player.x - 16, player.y - 2, 5, 4).fill(0xffa033);
   }
 }
 function gameOver(){
   running = false;
+  seOver();
   document.getElementById('ovTitle').textContent = 'GAME OVER';
   document.getElementById('ovText').innerHTML = 'スコアは <b>' + score + '</b> でした。おつかれさま！';
   document.getElementById('startBtn').textContent = 'もう一度';
   document.getElementById('overlay').style.display = 'flex';
 }
-document.getElementById('startBtn').onclick = () => {
+document.getElementById('startBtn').onclick = async () => {
+  if (typeof Tone !== 'undefined') { try { await Tone.start(); } catch(e){} }
+  initAudio();
   document.getElementById('overlay').style.display = 'none';
   reset(); running = true; requestAnimationFrame(step);
 };
@@ -200,7 +224,6 @@ cv.addEventListener('touchend', () => pointer = null);
 cv.addEventListener('mousedown', e => pointer = toLocal(e));
 cv.addEventListener('mousemove', e => { if (pointer) pointer = toLocal(e); });
 addEventListener('mouseup', () => pointer = null);
-draw();
 </script>
 </body>
 </html>
